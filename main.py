@@ -1,0 +1,609 @@
+# -*- coding: utf-8 -*-
+import json, os, threading, time
+from datetime import datetime, timedelta
+import telebot
+from telebot import types
+
+TOKEN = os.environ.get("BOT_TOKEN", "ВСТАВЬ_ТОКЕН")
+OWNER = int(os.environ.get("OWNER_ID", "0"))
+TZ_SHIFT = int(os.environ.get("TZ_SHIFT", "3"))
+DB = os.environ.get("DB_PATH", "data.json")
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
+DAYS = ["пн","вт","ср","чт","пт","сб","вс"]
+DAYNAME = {"пн":"Понедельник","вт":"Вторник","ср":"Среда","чт":"Четверг",
+           "пт":"Пятница","сб":"Суббота","вс":"Воскресенье"}
+
+CAT_NAME = {"olympiad":"📚 Олимпиада","transformation":"🔥 Трансформация",
+            "morning":"☀️ Утренние рутины","evening":"🌙 Вечерние рутины",
+            "strength":"🏋️ Силовые","running":"🏃 Бег"}
+TRACKED_CATS = ["olympiad","transformation","morning","evening","strength","running"]
+
+def now():
+    return datetime.utcnow() + timedelta(hours=TZ_SHIFT)
+
+MORNING = ("☀️ УТРЕННЯЯ РУТИНА",
+ "• Вода 400–600 мл сразу после пробуждения.\n"
+ "• Лёд/холодная вода 2–3 раза по 10–15 сек + ледяной роллер (челюсть 20, скулы 20, подглазье 10, шея 10).\n"
+ "• Уход за кожей: пенка → ниацинамид → увлажнение → SPF.\n"
+ "• Hunter Eyes 3×15–20.\n"
+ "• Разминка 2 мин + мини-блок: подтягивания 3–5 подходов по 40–60% максимума, отжимания 3×15–25, "
+ "пресс (ноги 12–15 / скручивания 20–25 / планка 45–60 сек).")
+EVENING = ("🌙 ВЕЧЕРНЯЯ РУТИНА",
+ "• Умывание пенкой.\n• Салициловая кислота BHA 2% на зоны с прыщами и чёрными точками.\n"
+ "• Восстанавливающий гель.\n• Касторовое или усьмовое масло на брови перед сном.\n"
+ "• Ужин за 2–3 ч до сна, воду сократить. Сон 8–9 часов, низкая подушка.")
+
+DEFAULT = {
+ "пн":[["08:00","08:25",*MORNING],
+       ["17:00","18:15","💪 Силовая: грудь + трицепс + плечи + пресс",
+        "Жим гантелей 4×8–12 • Отжимания с паузой 4×12–20 • Отжимания ноги выше 3×10–15 • "
+        "Разгибание из-за головы 3×10–15 • Махи 5×12–20 • Пресс 3 круга"],
+       ["20:00","20:20","🦷 Челюсть: жёсткая жвачка","10–20 мин, 5–10 мин на сторону. При боли — убрать."],
+       ["22:00","22:15",*EVENING]],
+ "вт":[["08:00","08:25",*MORNING],
+       ["17:00","17:45","🏃 Бег: интервалы + мобильность",
+        "Разминка 8 мин • 6 раундов (1 мин быстро 80–90% + 2 мин легко) • Заминка 5 мин • Растяжка 10–12 мин"],
+       ["19:00","19:10","😮 Hollow Cheeks + Chin Tucks","Vacuum cheeks 5×10 сек • Chin tucks 3×12–15"],
+       ["22:00","22:15",*EVENING]],
+ "ср":[["08:00","08:25",*MORNING],
+       ["17:00","18:15","💪 Силовая: спина + бицепс + плечи (V-силуэт)",
+        "Подтягивания строго 6–8 подходов (25–50 повторов) • Тяга гантелей 4×8–12 • Бицепс 4×8–12 • "
+        "Молотки 4×10–12 • Жим вверх 4×8–12 • Пресс 3 круга"],
+       ["20:00","20:20","🦷 Челюсть: жёсткая жвачка","10–20 мин."],
+       ["22:00","22:15",*EVENING]],
+ "чт":[["08:00","08:25",*MORNING],
+       ["17:00","17:45","🚶 Восстановление + лёгкий тонус",
+        "30–45 мин ходьбы • Лопатки/плечи легко 2–3 упражнения по 2–3 подхода • Уход за лицом, сон в приоритете"],
+       ["19:00","19:10","😮 Hollow Cheeks + Chin Tucks","Vacuum cheeks 5×10 сек • Chin tucks 3×12–15"],
+       ["22:00","22:15",*EVENING]],
+ "пт":[["08:00","08:25",*MORNING],
+       ["17:00","18:15","💪 Сила рук + плечи/грудь (под броски) + ноги",
+        "Подтягивания 5×3–6 (можно рюкзак) • Узкие отжимания 4×8–15 • Жим гантелей 4×8–12 • "
+        "Махи 4×15–20 • Предплечья 3×15–20 • Присед 3×10–15 + выпады 2×10"],
+       ["20:00","20:20","🦷 Челюсть: жёсткая жвачка","10–20 мин."],
+       ["22:00","22:15",*EVENING]],
+ "сб":[["08:00","08:25",*MORNING],
+       ["17:00","17:50","🏃 Бег зона 2 + стретчинг","25–35 мин ровного бега (разговорный темп) + стретчинг 15 мин"],
+       ["19:00","19:10","😮 Hollow Cheeks","Vacuum cheeks 5×10 сек"],
+       ["22:00","22:15",*EVENING]],
+ "вс":[["08:00","08:25",*MORNING],
+       ["10:30","12:30","📚 Олимпиада: мини-срез по теории чисел",
+        "Разбор 10–15 задач, работа над ошибками, конспект формул."],
+       ["16:00","17:30","🚶 Восстановление + прогулка + замеры прогресса",
+        "Лёгкая прогулка — 10 000 шагов.\nСон — 8–9 часов.\nФото прогресса: пресс, руки, грудь и лицо в анфас/профиль."],
+       ["22:00","22:15",*EVENING]],
+}
+
+HABITS = ("✅ <b>Постоянные привычки</b>\n"
+ "• Вода 2.5–3.0 л в день.\n"
+ "• 2800–3200 ккал, белок 1.6–2.2 г/кг, белок в каждом приёме пищи.\n"
+ "• Без фастфуда/чипсов/газировки/лишней соли.\n"
+ "• Носовое дыхание и осанка.\n"
+ "• Сон 8–9 часов.")
+
+def blank():
+    sched, i = {}, 1
+    for d in DAYS:
+        sched[d] = []
+        for t in DEFAULT[d]:
+            sched[d].append({"id": i, "start": t[0], "end": t[1], "title": t[2], "desc": t[3]})
+            i += 1
+    return {"settings": {"wake":"07:00","bed":"23:00","morning":"07:00","evening":"22:00",
+                         "pre":10,"prenotify":True,"ai":True},
+            "schedule": sched, "extra": {}, "skip": {}, "done": {}, "sent": {}, "next_id": i,
+            "postpones": {}, "energy": {}, "time_actual": {}, "notes": {}, "snooze": {}}
+
+def load():
+    if not os.path.exists(DB):
+        save(blank())
+    with open(DB, encoding="utf-8") as f:
+        d = json.load(f)
+    for k in ["postpones","energy","time_actual","notes","snooze"]:
+        d.setdefault(k, {})
+    d["settings"].setdefault("ai", True)
+    return d
+
+def save(d):
+    with open(DB,"w",encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+
+D = load()
+LOCK = threading.Lock()
+
+def dkey(dt=None): return (dt or now()).strftime("%Y-%m-%d")
+def wkey(dt=None): return DAYS[(dt or now()).weekday()]
+def hm(s):
+    h,m = s.split(":"); return int(h)*60+int(m)
+
+def week_dates(dt=None):
+    dt = dt or now()
+    monday = dt - timedelta(days=dt.weekday())
+    return [monday + timedelta(days=i) for i in range(7)]
+
+def category_of(title):
+    l = title.lower()
+    cats = []
+    if "утренн" in l: cats.append("morning")
+    if "вечерн" in l: cats.append("evening")
+    if "силов" in l or "подтяг" in l: cats += ["transformation","strength"]
+    if "бег" in l: cats += ["transformation","running"]
+    if "восстановлен" in l or "тонус" in l or "прогулк" in l or "прогресс-тест" in l: cats.append("transformation")
+    if "олимпиад" in l: cats.append("olympiad")
+    if "hollow" in l.lower() or "cheek" in l.lower() or "челюст" in l: cats.append("transformation")
+    return list(dict.fromkeys(cats)) or ["other"]
+
+def min_result_for(cats):
+    if "olympiad" in cats: return "Выполнить хотя бы один блок подготовки к олимпиаде, не переносить на завтра."
+    if "strength" in cats: return "Выполнить основной блок силовой без добавления новых упражнений."
+    if "running" in cats: return "Пробежать/пройти запланированную дистанцию в указанном темпе."
+    if "morning" in cats: return "Выполнить утренний уход и лёгкую разминку полностью."
+    if "evening" in cats: return "Умыться, выполнить вечерний уход и нанести масло на брови."
+    if "transformation" in cats: return "Выполнить основной блок дня из мастер-плана без добавления новых упражнений."
+    return "Выполнить блок полностью, как указано в описании."
+
+def why_for(cats):
+    if "olympiad" in cats: return "Поддержать регулярную подготовку к олимпиаде и не потерять набранный темп."
+    if "evening" in cats: return "Закрыть отдельный вечерний уход из мастер-плана, не смешивая его с утренней рутиной."
+    return "Выполнить предусмотренный на этот день блок мастер-плана трансформации."
+
+PAGE = {"morning":1,"evening":1,"strength":2,"running":3,"transformation":4,"olympiad":5,"other":1}
+def source_for(t, day, cats):
+    cat = cats[0] if cats else "other"
+    page = PAGE.get(cat, 1)
+    return f"MASTER_TRANSFORMATION_PLAN_2026.pdf — page {page}, {DAYNAME[day]}: {t['title']}"
+
+def tasks_for(dt=None):
+    dt = dt or now()
+    res = [t for t in D["schedule"][wkey(dt)] if t["id"] not in D["skip"].get(dkey(dt), [])]
+    res += D["extra"].get(dkey(dt), [])
+    return sorted(res, key=lambda x: x["start"])
+
+def is_done(t, dt=None): return t["id"] in D["done"].get(dkey(dt), [])
+
+def find(tid):
+    for d in DAYS:
+        for t in D["schedule"][d]:
+            if t["id"] == tid: return d, t
+    for k, lst in D["extra"].items():
+        for t in lst:
+            if t["id"] == tid: return k, t
+    return None, None
+
+# ---------- клавиатуры ----------
+def kb_main():
+    k = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    k.row("📅 Сегодня","⚡ Сейчас"); k.row("➡️ Следующая","📊 Прогресс")
+    k.row("🗓 Неделя","🌙 Итог дня"); k.row("⚙️ Настройки")
+    return k
+
+def task_kb(t):
+    k = types.InlineKeyboardMarkup()
+    k.add(types.InlineKeyboardButton("✅ СДЕЛАЛ", callback_data=f"done:{t['id']}"))
+    k.add(types.InlineKeyboardButton("⏳ СДЕЛАЮ ПОЗЖЕ", callback_data=f"later:{t['id']}"))
+    return k
+
+def card(t, head="", day=None):
+    day = day or wkey()
+    dur = hm(t["end"]) - hm(t["start"])
+    cats = category_of(t["title"])
+    return (f"{head}\n\n<b>{t['title']}</b>\n\n<b>Что входит / как делать:</b>\n{t['desc']}\n\n"
+            f"⏰ <b>В расписании:</b> {t['start']}–{t['end']}\n"
+            f"⌛ <b>Сколько делать:</b> ~{dur} мин\n"
+            f"🎯 <b>Минимальный результат:</b>\n{min_result_for(cats)}\n\n"
+            f"💡 <b>Зачем:</b>\n{why_for(cats)}\n\n"
+            f"📄 <b>Источник:</b>\n{source_for(t, day, cats)}\n\n"
+            f"ID задачи: {t['id']}")
+
+def send_task(chat, t, head="🔔 СЕЙЧАС"):
+    bot.send_message(chat, card(t, head), reply_markup=task_kb(t))
+
+# ---------- базовые команды ----------
+@bot.message_handler(commands=["start"])
+def start(m):
+    bot.send_message(m.chat.id, "Бот расписания по мастер-плану запущен.\nВнизу кнопки, /help — редактирование.",
+                     reply_markup=kb_main())
+    show_today(m.chat.id)
+
+@bot.message_handler(commands=["help"])
+def helpc(m):
+    bot.send_message(m.chat.id,
+"<b>Редактирование расписания</b>\n"
+"<code>/add пн 08:00-08:25 Название | описание</code>\n"
+"<code>/del 12</code> — удалить\n"
+"<code>/time 12 09:00-09:30</code>\n"
+"<code>/name 12 Новое название</code>\n"
+"<code>/desc 12 Новое описание</code>\n"
+"<code>/move 12 ср</code> — перенести на другой день\n"
+"<code>/today 19:00-20:00 Хоккей | лёд</code> — только на сегодня\n"
+"<code>/skip 12</code> — пропустить сегодня\n"
+"<code>/list пн</code> — задачи дня с ID\n\n"
+"<b>Настройки</b>\n<code>/settings morning 07:00</code>, <code>evening 22:00</code>, "
+"<code>pre 10</code>, <code>prenotify on|off</code>, <code>wake 07:00</code>, <code>bed 23:00</code>, "
+"<code>ai on|off</code>")
+
+def show_today(chat, dt=None):
+    dt = dt or now()
+    ts = tasks_for(dt)
+    txt = f"📅 <b>{DAYNAME[wkey(dt)]}, {dt.strftime('%d.%m')}</b>\n\n"
+    for t in ts:
+        if is_done(t, dt):
+            mark = "✅ Выполнено"
+        elif dkey(dt) == dkey() and hm(t['end']) < hm(now().strftime('%H:%M')):
+            mark = "⚠️ Просрочено"
+        else:
+            mark = "⬜ Не начато"
+        bell = " · 🔔 Уведомление отправлено" if f"go{t['id']}" in D["sent"].get(dkey(dt), []) else ""
+        txt += f"<b>{t['start']}–{t['end']}</b> — {t['title']}\n{mark}{bell} · ID {t['id']}\n\n"
+    txt += HABITS + "\n\nНажми на задачу ниже, чтобы открыть полный состав."
+    k = types.InlineKeyboardMarkup()
+    for t in ts:
+        k.add(types.InlineKeyboardButton(f"📌 {t['start']} {t['title'][:28]}", callback_data=f"open:{t['id']}"))
+    bot.send_message(chat, txt, reply_markup=k)
+
+@bot.message_handler(func=lambda m: m.text=="📅 Сегодня")
+def h1(m): show_today(m.chat.id)
+
+@bot.message_handler(func=lambda m: m.text=="⚡ Сейчас")
+def h2(m):
+    cur = hm(now().strftime("%H:%M"))
+    for t in tasks_for():
+        if hm(t["start"]) <= cur <= hm(t["end"]):
+            return send_task(m.chat.id, t, "⚡ СЕЙЧАС")
+    for t in tasks_for():
+        if hm(t["end"]) < cur and not is_done(t):
+            return send_task(m.chat.id, t, "⚠️ ПРОСРОЧЕНО")
+    bot.send_message(m.chat.id, "Сейчас свободное окно 🙂")
+
+@bot.message_handler(func=lambda m: m.text=="➡️ Следующая")
+def h3(m):
+    cur = hm(now().strftime("%H:%M"))
+    for t in tasks_for():
+        if hm(t["start"]) > cur:
+            left = hm(t["start"]) - cur
+            return bot.send_message(m.chat.id, card(t,"➡️ СЛЕДУЮЩЕЕ") + f"\n\nЧерез: {left//60} ч {left%60} мин",
+                                    reply_markup=task_kb(t))
+    bot.send_message(m.chat.id, "На сегодня задач больше нет.")
+
+# ---------- прогресс за неделю ----------
+@bot.message_handler(func=lambda m: m.text=="📊 Прогресс")
+def h4(m):
+    wd = week_dates()
+    start_s, end_s = wd[0].strftime("%d.%m"), wd[6].strftime("%d.%m")
+    txt = f"📊 <b>ПРОГРЕСС ЗА НЕДЕЛЮ</b>\n{start_s}–{end_s}\n\n"
+
+    cat_num = {c: 0 for c in TRACKED_CATS}
+    cat_den = {c: 0 for c in TRACKED_CATS}
+    plan_olymp = 0
+    fact_olymp = 0
+    postpones_total = 0
+
+    for d in wd:
+        if d > now(): continue
+        day_tasks = tasks_for(d)
+        by_cat = {}
+        for t in day_tasks:
+            for c in category_of(t["title"]):
+                if c in TRACKED_CATS:
+                    by_cat.setdefault(c, []).append(t)
+                    if c == "olympiad":
+                        plan_olymp += hm(t["end"]) - hm(t["start"])
+        for c, lst in by_cat.items():
+            cat_den[c] += 1
+            if all(is_done(t, d) for t in lst):
+                cat_num[c] += 1
+        fact_olymp += D["time_actual"].get(dkey(d), {}).get("olympiad", 0)
+        postpones_total += D["postpones"].get(dkey(d), 0)
+
+    for c in TRACKED_CATS:
+        if cat_den[c] > 0:
+            txt += f"{CAT_NAME[c]}: {cat_num[c]}/{cat_den[c]}\n"
+    txt += (f"\n⏱ Олимпиада — план: {plan_olymp//60} ч {plan_olymp%60} мин\n"
+            f"⏱ Олимпиада — факт: {fact_olymp//60} ч {fact_olymp%60} мин\n"
+            f"⏳ Переносов: {postpones_total}")
+    bot.send_message(m.chat.id, txt)
+
+@bot.message_handler(func=lambda m: m.text=="🗓 Неделя")
+def h5(m):
+    txt = "🗓 <b>НЕДЕЛЯ</b>\n\n"
+    for d in DAYS:
+        txt += f"<b>{DAYNAME[d]}</b>\n"
+        for t in sorted(D["schedule"][d], key=lambda x:x["start"]):
+            txt += f"  {t['start']}–{t['end']} {t['title']} · ID {t['id']}\n"
+        txt += "\n"
+    bot.send_message(m.chat.id, txt)
+
+# ---------- итог дня ----------
+@bot.message_handler(func=lambda m: m.text=="🌙 Итог дня")
+def h6(m): day_summary(m.chat.id)
+
+def day_summary(chat):
+    ts = tasks_for(); done = D["done"].get(dkey(),[])
+    mandatory = [t for t in D["schedule"][wkey()] if t["id"] not in D["skip"].get(dkey(), [])]
+    mand_done = sum(1 for t in mandatory if t["id"] in done)
+    time_today = D["time_actual"].get(dkey(), {})
+    txt = (f"🌙 <b>ИТОГ ДНЯ</b>\n\n"
+           f"Выполнено: {len(done)}/{len(ts)}\n"
+           f"Обязательные: {mand_done}/{len(mandatory)}\n\n"
+           f"📚 Олимпиада: {time_today.get('olympiad',0)} мин\n"
+           f"🔥 Трансформация: {time_today.get('transformation',0)} мин\n"
+           f"⏳ Переносов: {D['postpones'].get(dkey(),0)}\n"
+           f"⏭ Пропущено: {len(D['skip'].get(dkey(),[]))}\n\n"
+           f"Энергия сейчас? Оцени от 1 до 10.")
+    k = types.InlineKeyboardMarkup()
+    k.row(*[types.InlineKeyboardButton(str(i), callback_data=f"energy:{i}") for i in range(1,6)])
+    k.row(*[types.InlineKeyboardButton(str(i), callback_data=f"energy:{i}") for i in range(6,11)])
+    bot.send_message(chat, txt, reply_markup=k)
+
+# ---------- настройки ----------
+@bot.message_handler(func=lambda m: m.text=="⚙️ Настройки")
+def h7(m):
+    s = D["settings"]
+    bot.send_message(m.chat.id,
+f"⚙️ <b>НАСТРОЙКИ</b>\n\nПодъём: {s['wake']}\nСон: {s['bed']}\nУтренняя сводка: {s['morning']}\n"
+f"Вечерний итог: {s['evening']}\nПредупреждать за: {s['pre']} мин\nПредварительные уведомления: {s['prenotify']}\n"
+f"AI: {s['ai']}\n\n"
+f"Изменение:\n<code>/settings wake 07:00</code>\n<code>/settings bed 23:00</code>\n"
+f"<code>/settings morning 07:00</code>\n<code>/settings evening 22:00</code>\n"
+f"<code>/settings pre 10</code>\n<code>/settings prenotify on</code>\n<code>/settings ai off</code>\n\n"
+f"Расписание: /help")
+
+@bot.message_handler(commands=["settings"])
+def setc(m):
+    p = m.text.split()
+    if len(p) < 3: return h7(m)
+    k, v = p[1], p[2]
+    if k in ("wake","bed","morning","evening"): D["settings"][k] = v
+    elif k == "pre": D["settings"]["pre"] = int(v)
+    elif k == "prenotify": D["settings"]["prenotify"] = (v == "on")
+    elif k == "ai": D["settings"]["ai"] = (v == "on")
+    else: return bot.reply_to(m, "Не знаю такой параметр")
+    save(D); bot.reply_to(m, "Сохранено ✅")
+
+# ---------- редактирование расписания ----------
+def parse_add(text):
+    tm, rest = text.split(" ", 1)
+    st, en = tm.split("-")
+    if "|" in rest: title, desc = [x.strip() for x in rest.split("|",1)]
+    else: title, desc = rest.strip(), auto_desc(rest)
+    return st, en, auto_emoji(title), desc
+
+def auto_emoji(t):
+    l = t.lower()
+    for w,e in [("бег","🏃"),("подтяг","🏋️"),("силов","💪"),("лицо","🧊"),("роллер","🧊"),
+                ("уход","🧴"),("пресс","🔥"),("хокке","🏒"),("прогул","🚶"),("сон","🌙"),
+                ("учеб","📚"),("олимпиад","📚"),("челюст","🦷")]:
+        if w in l and not any(ch in t for ch in "🏃🏋️💪🧊🧴🔥🏒🚶🌙📚🦷☀️"):
+            return f"{e} {t}"
+    return t
+
+def auto_desc(t):
+    l = t.lower()
+    if "бег" in l: return "Разминка 8 мин, основная часть, заминка 5 мин, растяжка."
+    if "подтяг" in l or "силов" in l: return "Работать строго, не в отказ. Подтягивания — полная амплитуда."
+    if "лицо" in l or "роллер" in l: return "Холод 2–3×10–15 сек + роллер: челюсть 20, скулы 20, подглазье 10, шея 10."
+    if "уход" in l: return "Умывание → активы → увлажнение (утром SPF)."
+    if "олимпиад" in l: return "Разбор задач, работа над ошибками, конспект формул."
+    return "Выполнить блок из мастер-плана."
+
+@bot.message_handler(commands=["add"])
+def addc(m):
+    try:
+        _, day, rest = m.text.split(" ", 2)
+        st, en, title, desc = parse_add(rest)
+        t = {"id": D["next_id"], "start": st, "end": en, "title": title, "desc": desc}
+        D["next_id"] += 1; D["schedule"][day].append(t); save(D)
+        bot.reply_to(m, f"Добавлено в {DAYNAME[day]}: {st}–{en} {title} (ID {t['id']})")
+    except Exception:
+        bot.reply_to(m, "Формат: /add пн 08:00-08:25 Название | описание")
+
+@bot.message_handler(commands=["today"])
+def todayc(m):
+    try:
+        st, en, title, desc = parse_add(m.text.split(" ",1)[1])
+        t = {"id": D["next_id"], "start": st, "end": en, "title": title, "desc": desc}
+        D["next_id"] += 1; D["extra"].setdefault(dkey(), []).append(t); save(D)
+        bot.reply_to(m, f"Только на сегодня: {st}–{en} {title} (ID {t['id']})")
+    except: bot.reply_to(m, "Формат: /today 19:00-20:00 Хоккей | лёд")
+
+@bot.message_handler(commands=["del"])
+def delc(m):
+    tid = int(m.text.split()[1]); d, t = find(tid)
+    if not t: return bot.reply_to(m, "Нет такой ID")
+    (D["schedule"][d] if d in DAYS else D["extra"][d]).remove(t); save(D)
+    bot.reply_to(m, f"Удалено: {t['title']}")
+
+@bot.message_handler(commands=["time"])
+def timec(m):
+    _, tid, tm = m.text.split(); d, t = find(int(tid))
+    if not t: return bot.reply_to(m, "Нет такой ID")
+    t["start"], t["end"] = tm.split("-"); save(D); bot.reply_to(m, "Время изменено ✅")
+
+@bot.message_handler(commands=["name"])
+def namec(m):
+    _, tid, val = m.text.split(" ",2); d, t = find(int(tid))
+    if not t: return bot.reply_to(m, "Нет такой ID")
+    t["title"] = auto_emoji(val); save(D); bot.reply_to(m, "Название изменено ✅")
+
+@bot.message_handler(commands=["desc"])
+def descc(m):
+    _, tid, val = m.text.split(" ",2); d, t = find(int(tid))
+    if not t: return bot.reply_to(m, "Нет такой ID")
+    t["desc"] = val; save(D); bot.reply_to(m, "Описание изменено ✅")
+
+@bot.message_handler(commands=["move"])
+def movec(m):
+    _, tid, day = m.text.split(); d, t = find(int(tid))
+    if not t or day not in DAYS: return bot.reply_to(m, "Формат: /move 12 ср")
+    D["schedule"][d].remove(t); D["schedule"][day].append(t); save(D)
+    bot.reply_to(m, f"Перенесено в {DAYNAME[day]} ✅")
+
+@bot.message_handler(commands=["skip"])
+def skipc(m):
+    tid = int(m.text.split()[1])
+    D["skip"].setdefault(dkey(), []).append(tid); save(D)
+    bot.reply_to(m, "Пропущено на сегодня ✅")
+
+@bot.message_handler(commands=["list"])
+def listc(m):
+    day = m.text.split()[1] if len(m.text.split())>1 else wkey()
+    txt = f"<b>{DAYNAME[day]}</b>\n"
+    for t in sorted(D["schedule"][day], key=lambda x:x["start"]):
+        txt += f"{t['start']}–{t['end']} {t['title']} · ID {t['id']}\n"
+    bot.send_message(m.chat.id, txt)
+
+# ---------- готово / позже / энергия / замер времени ----------
+def ask_actual_time(chat, tid):
+    k = types.InlineKeyboardMarkup()
+    k.row(*[types.InlineKeyboardButton(f"{x} мин", callback_data=f"real:{tid}:{x}") for x in (10,20,30)])
+    k.row(*[types.InlineKeyboardButton(f"{x} мин", callback_data=f"real:{tid}:{x}") for x in (45,60,90)])
+    k.add(types.InlineKeyboardButton("✏️ Ввести самому", callback_data=f"real_custom:{tid}"))
+    bot.send_message(chat, "⏱ <b>Сколько реально заняло?</b>\nЭто сохранится в статистике занятия.", reply_markup=k)
+
+def ask_busy_time(chat, tid):
+    k = types.InlineKeyboardMarkup()
+    k.row(types.InlineKeyboardButton("+10 мин", callback_data=f"snooze:{tid}:10"),
+          types.InlineKeyboardButton("+20 мин", callback_data=f"snooze:{tid}:20"))
+    k.row(types.InlineKeyboardButton("+30 мин", callback_data=f"snooze:{tid}:30"),
+          types.InlineKeyboardButton("+1 час", callback_data=f"snooze:{tid}:60"))
+    k.add(types.InlineKeyboardButton("✏️ Ввести самому", callback_data=f"snooze_custom:{tid}"))
+    bot.send_message(chat, "⏳ <b>На сколько ты сейчас занят?</b>", reply_markup=k)
+
+def record_time(tid, minutes):
+    t = find(tid)[1]
+    if not t: return
+    cats = category_of(t["title"])
+    day = D["time_actual"].setdefault(dkey(), {})
+    for c in cats:
+        if c in TRACKED_CATS:
+            day[c] = day.get(c, 0) + minutes
+    save(D)
+
+def mark_done(chat, tid):
+    D["done"].setdefault(dkey(), [])
+    if tid not in D["done"][dkey()]: D["done"][dkey()].append(tid)
+    save(D)
+    ts = tasks_for(); cur = hm(now().strftime("%H:%M"))
+    nxt = next((x for x in ts if hm(x["start"])>cur), None)
+    txt = f"✅ <b>ГОТОВО</b>\n\nЗадача выполнена.\nСегодня: {len(D['done'][dkey()])}/{len(ts)} задач."
+    if nxt:
+        left = hm(nxt["start"])-cur
+        txt += f"\n\nСледующая задача:\n{nxt['start']} — {nxt['title']}\nСвободное время: {left//60} ч {left%60} мин."
+    k = types.InlineKeyboardMarkup()
+    k.add(types.InlineKeyboardButton("📝 Добавить итог", callback_data=f"note:{tid}"))
+    bot.send_message(chat, txt, reply_markup=k)
+    ask_actual_time(chat, tid)
+
+@bot.callback_query_handler(func=lambda c: True)
+def cb(c):
+    data = c.data
+    chat = c.message.chat.id
+
+    if data.startswith("open:"):
+        tid = int(data.split(":")[1]); d, t = find(tid)
+        if not t: return bot.answer_callback_query(c.id, "Задача не найдена")
+        bot.send_message(chat, card(t, "📌 ЗАДАЧА"), reply_markup=task_kb(t))
+
+    elif data.startswith("done:"):
+        tid = int(data.split(":")[1])
+        mark_done(chat, tid)
+
+    elif data.startswith("later:"):
+        tid = int(data.split(":")[1])
+        D["postpones"][dkey()] = D["postpones"].get(dkey(), 0) + 1; save(D)
+        ask_busy_time(chat, tid)
+
+    elif data.startswith("real_custom:"):
+        tid = int(data.split(":")[1])
+        msg = bot.send_message(chat, "Напиши, сколько минут реально заняло (числом):")
+        bot.register_next_step_handler(msg, lambda m: _real_custom(m, tid))
+
+    elif data.startswith("real:"):
+        _, tid, mins = data.split(":")
+        record_time(int(tid), int(mins))
+        bot.send_message(chat, f"Записано: {mins} мин ✅")
+
+    elif data.startswith("snooze_custom:"):
+        tid = int(data.split(":")[1])
+        msg = bot.send_message(chat, "Через сколько минут напомнить? (числом):")
+        bot.register_next_step_handler(msg, lambda m: _snooze_custom(m, tid))
+
+    elif data.startswith("snooze:"):
+        _, tid, mins = data.split(":")
+        target = now() + timedelta(minutes=int(mins))
+        D["snooze"][tid] = target.strftime("%Y-%m-%d %H:%M")
+        save(D)
+        bot.send_message(chat, f"⏳ Ок, напомню через {mins} мин.")
+
+    elif data.startswith("note:"):
+        tid = int(data.split(":")[1])
+        msg = bot.send_message(chat, "Напиши короткий итог по задаче:")
+        bot.register_next_step_handler(msg, lambda m: _note(m, tid))
+
+    elif data.startswith("energy:"):
+        val = data.split(":")[1]
+        D["energy"][dkey()] = int(val); save(D)
+        bot.send_message(chat, f"Записано: энергия {val}/10 ✅")
+
+    bot.answer_callback_query(c.id)
+
+def _real_custom(m, tid):
+    try:
+        mins = int("".join(ch for ch in m.text if ch.isdigit()))
+        record_time(tid, mins)
+        bot.send_message(m.chat.id, f"Записано: {mins} мин ✅")
+    except Exception:
+        bot.send_message(m.chat.id, "Не понял число, попробуй ещё раз через кнопку статистики.")
+
+def _snooze_custom(m, tid):
+    try:
+        mins = int("".join(ch for ch in m.text if ch.isdigit()))
+        target = now() + timedelta(minutes=mins)
+        D["snooze"][str(tid)] = target.strftime("%Y-%m-%d %H:%M")
+        save(D)
+        bot.send_message(m.chat.id, f"⏳ Ок, напомню через {mins} мин.")
+    except Exception:
+        bot.send_message(m.chat.id, "Не понял число, попробуй снова.")
+
+def _note(m, tid):
+    D["notes"].setdefault(dkey(), {})[str(tid)] = m.text
+    save(D)
+    bot.send_message(m.chat.id, "Итог сохранён 📝")
+
+# ---------- планировщик ----------
+def loop():
+    while True:
+        try:
+            if OWNER:
+                n = now(); hhmm = n.strftime("%H:%M"); s = D["settings"]
+                sent = D["sent"].setdefault(dkey(), [])
+                if hhmm == s["morning"] and "morning" not in sent:
+                    sent.append("morning"); save(D); show_today(OWNER)
+                if hhmm == s["evening"] and "evening" not in sent:
+                    sent.append("evening"); save(D); day_summary(OWNER)
+                cur = hm(hhmm)
+                for t in tasks_for():
+                    key = f"pre{t['id']}"
+                    if s["prenotify"] and hm(t["start"]) - cur == s["pre"] and key not in sent:
+                        sent.append(key); save(D)
+                        dur = hm(t["end"]) - hm(t["start"])
+                        bot.send_message(OWNER,
+                            f"⏰ <b>Через {s['pre']} мин</b>\n\n{t['title']}\n{t['start']}–{t['end']}\n"
+                            f"План: {dur} мин\n\nПодготовь всё необходимое.")
+                    key2 = f"go{t['id']}"
+                    if t["start"] == hhmm and key2 not in sent:
+                        sent.append(key2); save(D); send_task(OWNER, t)
+                # отложенные напоминания
+                for tid, tstr in list(D["snooze"].items()):
+                    if datetime.strptime(tstr, "%Y-%m-%d %H:%M") <= n:
+                        d, t = find(int(tid))
+                        if t: send_task(OWNER, t, "⏳ КАК И ДОГОВАРИВАЛИСЬ")
+                        del D["snooze"][tid]; save(D)
+        except Exception as e:
+            print("loop error", e)
+        time.sleep(30)
+
+if __name__ == "__main__":
+    threading.Thread(target=loop, daemon=True).start()
+    print("Bot started, polling...")
+    bot.infinity_polling(skip_pending=True)
