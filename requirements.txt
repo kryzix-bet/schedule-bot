@@ -1,8 +1,0 @@
-aiogram==3.4.1
-pyrogram==2.0.106
-tgcrypto==1.2.5
-sqlalchemy[asyncio]==2.0.28
-asyncpg==0.29.0
-redis==5.0.3
-apscheduler==3.10.4
-pydantic-settings==2.2.1
