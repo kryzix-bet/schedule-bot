@@ -1,0 +1,46 @@
+{
+  "allowed_origins": ["personal", "resale", "autoreg"],
+  "blocked_origins": ["brute", "phishing", "stealer", "retrieve_via_support"],
+  "preferred_email_types": ["native", "autoreg"],
+  "rare_skins": {
+    "Travis Scott": 18,
+    "Black Knight": 20,
+    "The Reaper": 16,
+    "IKONIK": 16,
+    "Wonder": 14,
+    "Royale Knight": 10,
+    "Havoc": 8
+  },
+  "rare_pickaxes": {
+    "Raider's Revenge": 18,
+    "Leviathan Axe": 14,
+    "Merry Mint Axe": 12,
+    "Diamond Jack": 7
+  },
+  "rare_dances": {
+    "Take The L": 16,
+    "Scenario": 14,
+    "Orange Justice": 10,
+    "Freestylin'": 8,
+    "Raise The Cup": 6
+  },
+  "weights": {
+    "daybreak_25_44": 6,
+    "daybreak_45_89": 10,
+    "daybreak_90_plus": 15,
+    "change_email_yes": 8,
+    "personal_origin": 12,
+    "resale_origin": 3,
+    "autoreg_origin": 1,
+    "email_login_data": 10,
+    "old_registration_years_3_plus": 5,
+    "old_registration_years_6_plus": 8,
+    "shop_skins_per_10": 1,
+    "shop_pickaxes_per_10": 1,
+    "shop_dances_per_10": 1,
+    "stw": 4,
+    "rl_purchases": 2,
+    "xbox_linkable_yes": 2,
+    "psn_linkable_yes": 2
+  }
+}
